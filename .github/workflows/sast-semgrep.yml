@@ -45,6 +45,8 @@ jobs:
             p/cwe-top-25
             auto
         env:
+          # Aborta o pipeline se encontrar vulnerabilidades com severidade ERROR (método para v1 da action)
+          SEMGREP_FAIL_ON_SEVERITY: ERROR
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
           
       - name: Upload SARIF file

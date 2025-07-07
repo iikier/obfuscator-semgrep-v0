@@ -5,20 +5,21 @@
 rules:
   # Regras genéricas de segurança - aplicáveis a qualquer linguagem
   - id: hardcoded-secret-detection
-    pattern-either:
-      - pattern: password = "$SECRET"
-      - pattern: token = "$SECRET"
-      - pattern: api_key = "$SECRET"
-      - pattern: secret = "$SECRET"
-      - pattern: key = "$SECRET"
-    metavariable-pattern:
-      metavariable: $SECRET
-      patterns:
-        - pattern-not: ""
-        - pattern-not: "..."
-        - pattern-not: "TODO"
-        - pattern-not: "CHANGE_ME"
-        - pattern-regex: '.{8,}'
+    patterns:
+      - pattern-either:
+          - pattern: password = "$SECRET"
+          - pattern: token = "$SECRET"
+          - pattern: api_key = "$SECRET"
+          - pattern: secret = "$SECRET"
+          - pattern: key = "$SECRET"
+      - metavariable-pattern:
+          metavariable: $SECRET
+          patterns:
+            - pattern-not: ""
+            - pattern-not: "..."
+            - pattern-not: "TODO"
+            - pattern-not: "CHANGE_ME"
+            - pattern-regex: '.{8,}'
     message: |
       Possível credencial hardcoded detectada.
       
@@ -43,12 +44,45 @@ rules:
       cwe: "CWE-798: Use of Hard-coded Credentials"
       owasp: "A02:2021 - Cryptographic Failures"
 
+  - id: generic-high-entropy-secret
+    message: |
+      Possível segredo de alta entropia detectado.
+      Um valor com alta aleatoriedade foi encontrado, o que é característico de chaves de API, tokens e outras credenciais.
+      
+      Riscos:
+      - Exposição de credenciais que dão acesso a sistemas críticos.
+      
+      Ação Recomendada:
+      - Verifique se este valor é realmente um segredo.
+      - Se for, remova-o do código-fonte e armazene-o de forma segura, como em um gerenciador de segredos (ex: AWS Secrets Manager, HashiCorp Vault) ou em variáveis de ambiente.
+    metadata:
+      category: security
+      subcategory: secrets
+      confidence: MEDIUM
+      impact: HIGH
+      likelihood: MEDIUM
+      owasp: "A02:2021 - Cryptographic Failures"
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+    severity: WARNING
+    languages:
+      - generic
+    patterns:
+      - pattern-regex: (?i)['"][a-z0-9\-_.~+/=]{40,}['"]
+      - pattern-not-regex: (?i)'.*https?://.*'
+      - pattern-not-regex: (?i)".*https?://.*"
+      - pattern-not-regex: (?i)(jwt|bearer|token)
+      - pattern-not-regex: (?i)sha(1|256|512)
+      - pattern-not-regex: (?i)md5
+      - pattern-not-regex: (?i)from.*import
+      - pattern-not-regex: (?i)BEGIN (RSA|OPENSSH) PRIVATE KEY
+
   - id: generic-sql-injection
-    pattern-either:
-      - pattern: $QUERY = "$SQL" + $VAR
-      - pattern: $QUERY = "$SQL" + $VAR + "$MORE"
-      - pattern: $DB.query("$SQL" + $VAR)
-      - pattern: $DB.execute("$SQL" + $VAR)
+    patterns:
+      - pattern-either:
+          - pattern: $QUERY = "$SQL" + $VAR
+          - pattern: $QUERY = "$SQL" + $VAR + "$MORE"
+          - pattern: $DB.query("$SQL" + $VAR)
+          - pattern: $DB.execute("$SQL" + $VAR)
     message: |
       Possível vulnerabilidade de SQL Injection detectada.
       
@@ -75,20 +109,21 @@ rules:
       owasp: "A03:2021 - Injection"
 
   - id: generic-path-traversal
-    pattern-either:
-      - pattern: $PATH = $INPUT + "$FILE"
-      - pattern: $PATH = "$DIR" + $INPUT
-      - pattern: open($INPUT)
-      - pattern: read($INPUT)
-    metavariable-pattern:
-      metavariable: $INPUT
-      patterns:
-        - pattern-either:
-          - pattern: req.params.$VAR
-          - pattern: request.params.$VAR
-          - pattern: $_GET["$VAR"]
-          - pattern: $_POST["$VAR"]
-          - pattern: args.$VAR
+    patterns:
+      - pattern-either:
+          - pattern: $PATH = $INPUT + "$FILE"
+          - pattern: $PATH = "$DIR" + $INPUT
+          - pattern: open($INPUT)
+          - pattern: read($INPUT)
+      - metavariable-pattern:
+          metavariable: $INPUT
+          patterns:
+            - pattern-either:
+              - pattern: req.params.$VAR
+              - pattern: request.params.$VAR
+              - pattern: $_GET["$VAR"]
+              - pattern: $_POST["$VAR"]
+              - pattern: args.$VAR
     message: |
       Possível vulnerabilidade de Path Traversal detectada.
       
