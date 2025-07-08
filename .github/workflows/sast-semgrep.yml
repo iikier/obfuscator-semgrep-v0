@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     name: Semgrep SAST Analysis
     permissions:
-      # Required for uploading results to GitHub Security tab
       security-events: write
       contents: read
       pull-requests: write
@@ -21,7 +20,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Para análise completa do histórico em PRs
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -35,46 +33,33 @@ jobs:
 
       - name: Run Semgrep
         id: semgrep
-        # ATUALIZANDO para a v2, a versão mais recente e suportada, para corrigir o bug de geração de SARIF.
-        # O linter local pode reclamar, mas o runner do GitHub Actions irá resolver corretamente.
-        uses: semgrep/semgrep-action@v2
-        # Permite que o workflow continue mesmo se o Semgrep encontrar algo e sair com erro.
-        # A falha será tratada no passo seguinte, após o upload do relatório.
+        uses: semgrep/semgrep-action@v1
         continue-on-error: true
         with:
-          # Gera o relatório SARIF para ser usado nos próximos passos (método padrão da v2).
-          sarif_file: semgrep.sarif
-          config: >-
+          config: >- 
             p/security-audit
             p/owasp-top-ten
             p/cwe-top-25
             auto
         env:
-          # O token é passado via env
+          SEMGREP_SARIF_FILE: semgrep.sarif
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
           
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
-        # Executa sempre para garantir que o relatório seja enviado
         if: always()
 
       - name: Fail pipeline on critical findings
         if: always()
         run: |
-          # Instala jq, uma ferramenta para processar JSON
           sudo apt-get -y install jq
-
-          # Conta o número de resultados com "level": "error" no relatório SARIF
-          # O 'jq' pode falhar se o arquivo não existir ou for inválido, então usamos '|| true' para continuar
           CRITICAL_FINDINGS=$(jq '[.runs[].results[] | select(.level == "error")] | length' semgrep.sarif || true)
-
           if [ -z "$CRITICAL_FINDINGS" ]; then
             echo "Relatório SARIF não encontrado ou inválido. Verifique o passo anterior."
             exit 1
           fi
-
           if [ "$CRITICAL_FINDINGS" -gt 0 ]; then
             echo "::error::O pipeline foi abortado! Foram encontradas $CRITICAL_FINDINGS vulnerabilidades críticas/altas."
             echo "Verifique a aba 'Security' para mais detalhes."
@@ -90,18 +75,13 @@ jobs:
           script: |
             const findings = '${{ steps.semgrep.outputs.findings }}';
             const body = `## 🔍 Análise de Segurança (SAST) - Semgrep
-            
             **Vulnerabilidades encontradas:** ${findings}
-            
             📋 Verifique os detalhes na aba [Security](https://github.com/${{ github.repository }}/security/code-scanning) do repositório.
-            
             ### ⚠️ Ação Necessária
             - Revise as vulnerabilidades identificadas
             - Aplique as correções necessárias
             - Confirme que os riscos foram mitigados
-            
             > **Trunk-based Development**: Correções de segurança devem ser aplicadas antes do merge para manter a qualidade da branch principal.`;
-            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -145,4 +125,4 @@ jobs:
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
           commit_message: 'Deploy to GitHub Pages [skip ci]'
-          full_commit_message: 'Deploy to GitHub Pages - Build passed security analysis' 
+          full_commit_message: 'Deploy to GitHub Pages - Build passed security analysis'
