@@ -45,18 +45,41 @@ jobs:
             p/cwe-top-25
             auto
         env:
-          # Gera o relatório SARIF para ser usado no próximo passo
+          # Gera o relatório SARIF para ser usado nos próximos passos
           SEMGREP_SARIF_FILE: semgrep.sarif
-          # Aborta o pipeline se encontrar vulnerabilidades com severidade ERROR (método para v1 da action)
-          SEMGREP_FAIL_ON_SEVERITY: ERROR
+          # NÃO falhamos mais aqui. Deixamos o passo seguinte decidir.
+          # SEMGREP_FAIL_ON_SEVERITY: ERROR
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
           
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
-        # Executa sempre para garantir que o relatório seja enviado, mesmo se o build falhar
+        # Executa sempre para garantir que o relatório seja enviado
         if: always()
+
+      - name: Fail pipeline on critical findings
+        if: always()
+        run: |
+          # Instala jq, uma ferramenta para processar JSON
+          sudo apt-get -y install jq
+
+          # Conta o número de resultados com "level": "error" no relatório SARIF
+          # O 'jq' pode falhar se o arquivo não existir ou for inválido, então usamos '|| true' para continuar
+          CRITICAL_FINDINGS=$(jq '[.runs[].results[] | select(.level == "error")] | length' semgrep.sarif || true)
+
+          if [ -z "$CRITICAL_FINDINGS" ]; then
+            echo "Relatório SARIF não encontrado ou inválido. Verifique o passo anterior."
+            exit 1
+          fi
+
+          if [ "$CRITICAL_FINDINGS" -gt 0 ]; then
+            echo "::error::O pipeline foi abortado! Foram encontradas $CRITICAL_FINDINGS vulnerabilidades críticas/altas."
+            echo "Verifique a aba 'Security' para mais detalhes."
+            exit 1
+          else
+            echo "Nenhuma vulnerabilidade crítica encontrada. Análise de segurança aprovada."
+          fi
 
       - name: Comment PR with results
         uses: actions/github-script@v7
