@@ -33,8 +33,6 @@ jobs:
 
       - name: Run Semgrep Manually
         id: semgrep_scan
-        # Instala e executa o Semgrep manualmente para ter controle total.
-        # Isso contorna qualquer bug na semgrep-action.
         run: |
           pip install semgrep
           semgrep ci --config="p/security-audit" --config="p/owasp-top-ten" --config="p/cwe-top-25" --config="auto" --sarif --output="semgrep.sarif"
@@ -49,16 +47,16 @@ jobs:
       - name: Fail pipeline on critical findings
         if: always()
         run: |
-          # Verifica se o arquivo SARIF existe antes de tentar processá-lo
           if [ ! -f semgrep.sarif ]; then
             echo "::error::Arquivo de relatório semgrep.sarif não foi gerado. O scan pode ter falhado."
             exit 1
           fi
           
-          # Instala jq se não estiver presente
           sudo apt-get -y install jq
 
-          CRITICAL_FINDINGS=$(jq '[.runs[].results[] | select(.level == "error")] | length' semgrep.sarif)
+          # Ajuste no JQ: Procura por `_severities: ["ERROR"]` dentro de `properties` da regra.
+          # Este é o local correto para encontrar a severidade definida em nossas regras customizadas.
+          CRITICAL_FINDINGS=$(jq '[.runs[].tool.driver.rules[] as $rule | .runs[].results[] | select(.ruleId == $rule.id and ($rule.properties._severities | index("ERROR"))) ] | length' semgrep.sarif)
           
           if [ "$CRITICAL_FINDINGS" -gt 0 ]; then
             echo "::error::O pipeline foi abortado! Foram encontradas $CRITICAL_FINDINGS vulnerabilidades críticas/altas."
@@ -74,7 +72,6 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            // Só comenta se houver resultados no relatório
             if (fs.existsSync('semgrep.sarif')) {
               const sarif = JSON.parse(fs.readFileSync('semgrep.sarif', 'utf8'));
               const findings = sarif.runs.reduce((acc, run) => acc + run.results.length, 0);
