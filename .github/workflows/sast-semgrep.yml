@@ -36,6 +36,9 @@ jobs:
       - name: Run Semgrep
         id: semgrep
         uses: semgrep/semgrep-action@v1
+        # Permite que o workflow continue mesmo se o Semgrep encontrar algo e sair com erro.
+        # A falha será tratada no passo seguinte, após o upload do relatório.
+        continue-on-error: true
         with:
           # Configuração genérica para múltiplos projetos
           # Detecta automaticamente linguagens no repositório
