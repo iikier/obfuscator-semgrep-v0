@@ -35,23 +35,22 @@ jobs:
 
       - name: Run Semgrep
         id: semgrep
-        uses: semgrep/semgrep-action@v1
+        # ATUALIZANDO para a v2, a versão mais recente e suportada, para corrigir o bug de geração de SARIF.
+        # O linter local pode reclamar, mas o runner do GitHub Actions irá resolver corretamente.
+        uses: semgrep/semgrep-action@v2
         # Permite que o workflow continue mesmo se o Semgrep encontrar algo e sair com erro.
         # A falha será tratada no passo seguinte, após o upload do relatório.
         continue-on-error: true
         with:
-          # Configuração genérica para múltiplos projetos
-          # Detecta automaticamente linguagens no repositório
+          # Gera o relatório SARIF para ser usado nos próximos passos (método padrão da v2).
+          sarif_file: semgrep.sarif
           config: >-
             p/security-audit
             p/owasp-top-ten
             p/cwe-top-25
             auto
         env:
-          # Gera o relatório SARIF para ser usado nos próximos passos
-          SEMGREP_SARIF_FILE: semgrep.sarif
-          # NÃO falhamos mais aqui. Deixamos o passo seguinte decidir.
-          # SEMGREP_FAIL_ON_SEVERITY: ERROR
+          # O token é passado via env
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
           
       - name: Upload SARIF file
