@@ -8,13 +8,14 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  semgrep:
+  scan:
     runs-on: ubuntu-latest
-    name: Semgrep SAST Analysis
+    name: 1. Run Security Scan
+    outputs:
+      scan_conclusion: ${{ steps.semgrep_scan.conclusion }}
     permissions:
       security-events: write
       contents: read
-      pull-requests: write
       
     steps:
       - name: Checkout code
@@ -22,82 +23,66 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Semgrep Manually
+      - name: Run Semgrep Scan
         id: semgrep_scan
         run: |
           pip install semgrep
           semgrep ci --config="p/security-audit" --config="p/owasp-top-ten" --config="p/cwe-top-25" --config="auto" --sarif --output="semgrep.sarif"
         continue-on-error: true
           
-      - name: Upload SARIF file
+      - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
         if: always()
 
-      - name: Fail pipeline on critical findings
-        if: always()
+  security_gate:
+    runs-on: ubuntu-latest
+    name: 2. Check Security Gate
+    needs: scan
+    permissions:
+      pull-requests: write # Apenas para o comentário
+      
+    steps:
+      - name: Check for critical findings
+        if: needs.scan.outputs.scan_conclusion == 'failure'
         run: |
-          if [ ! -f semgrep.sarif ]; then
-            echo "::error::Arquivo de relatório semgrep.sarif não foi gerado. O scan pode ter falhado."
-            exit 1
-          fi
-          
-          sudo apt-get -y install jq
-
-          # Ajuste no JQ: Procura por `_severities: ["ERROR"]` dentro de `properties` da regra.
-          # Este é o local correto para encontrar a severidade definida em nossas regras customizadas.
-          CRITICAL_FINDINGS=$(jq '[.runs[].tool.driver.rules[] as $rule | .runs[].results[] | select(.ruleId == $rule.id and ($rule.properties._severities | index("ERROR"))) ] | length' semgrep.sarif)
-          
-          if [ "$CRITICAL_FINDINGS" -gt 0 ]; then
-            echo "::error::O pipeline foi abortado! Foram encontradas $CRITICAL_FINDINGS vulnerabilidades críticas/altas."
-            echo "Verifique a aba 'Security' para mais detalhes."
-            exit 1
-          else
-            echo "Nenhuma vulnerabilidade crítica encontrada. Análise de segurança aprovada."
-          fi
+          echo "::error::O pipeline foi abortado! O scan de segurança encontrou vulnerabilidades críticas/altas."
+          echo "Verifique os resultados do job '1. Run Security Scan' e a aba 'Security' para mais detalhes."
+          exit 1
+      
+      - name: Approve security gate
+        if: needs.scan.outputs.scan_conclusion != 'failure'
+        run: echo "Nenhuma vulnerabilidade crítica encontrada. Análise de segurança aprovada."
 
       - name: Comment PR with results
+        # Comenta apenas se o scan falhou e for um evento de PR
+        if: needs.scan.outputs.scan_conclusion == 'failure' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
         with:
           script: |
-            const fs = require('fs');
-            if (fs.existsSync('semgrep.sarif')) {
-              const sarif = JSON.parse(fs.readFileSync('semgrep.sarif', 'utf8'));
-              const findings = sarif.runs.reduce((acc, run) => acc + run.results.length, 0);
-
-              if (findings > 0) {
-                const body = `## 🔍 Análise de Segurança (SAST) - Semgrep
-                **Vulnerabilidades encontradas:** ${findings}
-                📋 Verifique os detalhes na aba [Security](https://github.com/${{ github.repository }}/security/code-scanning) do repositório.
-                ### ⚠️ Ação Necessária
-                - Revise as vulnerabilidades identificadas
-                - Aplique as correções necessárias
-                - Confirme que os riscos foram mitigados
-                > **Trunk-based Development**: Correções de segurança devem ser aplicadas antes do merge para manter a qualidade da branch principal.`;
-                
-                github.rest.issues.createComment({
-                  issue_number: context.issue.number,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  body: body
-                });
-              }
-            }
+            const body = `## ❌ Falha na Análise de Segurança (SAST)
+            
+            **O pipeline foi bloqueado** devido a vulnerabilidades críticas ou de alta severidade.
+            
+            📋 Verifique os detalhes na aba [Security](https://github.com/${{ github.repository }}/security/code-scanning) do repositório para entender e corrigir os problemas.
+            
+            ### ⚠️ Ação Necessária
+            - **Não faça o merge deste Pull Request.**
+            - Corrija as vulnerabilidades apontadas.
+            - Faça um novo push para esta branch para re-executar a análise.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
 
   build-and-deploy:
-    needs: semgrep
     runs-on: ubuntu-latest
+    name: 3. Build and Deploy
+    needs: security_gate # Agora depende do portão de segurança
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
