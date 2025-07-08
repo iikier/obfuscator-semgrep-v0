@@ -31,19 +31,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Semgrep
-        id: semgrep
-        uses: semgrep/semgrep-action@v1
+      - name: Run Semgrep Manually
+        id: semgrep_scan
+        # Instala e executa o Semgrep manualmente para ter controle total.
+        # Isso contorna qualquer bug na semgrep-action.
+        run: |
+          pip install semgrep
+          semgrep ci --config="p/security-audit" --config="p/owasp-top-ten" --config="p/cwe-top-25" --config="auto" --sarif --output="semgrep.sarif"
         continue-on-error: true
-        with:
-          config: >- 
-            p/security-audit
-            p/owasp-top-ten
-            p/cwe-top-25
-            auto
-        env:
-          SEMGREP_SARIF_FILE: semgrep.sarif
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
           
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
@@ -54,12 +49,17 @@ jobs:
       - name: Fail pipeline on critical findings
         if: always()
         run: |
-          sudo apt-get -y install jq
-          CRITICAL_FINDINGS=$(jq '[.runs[].results[] | select(.level == "error")] | length' semgrep.sarif || true)
-          if [ -z "$CRITICAL_FINDINGS" ]; then
-            echo "Relatório SARIF não encontrado ou inválido. Verifique o passo anterior."
+          # Verifica se o arquivo SARIF existe antes de tentar processá-lo
+          if [ ! -f semgrep.sarif ]; then
+            echo "::error::Arquivo de relatório semgrep.sarif não foi gerado. O scan pode ter falhado."
             exit 1
           fi
+          
+          # Instala jq se não estiver presente
+          sudo apt-get -y install jq
+
+          CRITICAL_FINDINGS=$(jq '[.runs[].results[] | select(.level == "error")] | length' semgrep.sarif)
+          
           if [ "$CRITICAL_FINDINGS" -gt 0 ]; then
             echo "::error::O pipeline foi abortado! Foram encontradas $CRITICAL_FINDINGS vulnerabilidades críticas/altas."
             echo "Verifique a aba 'Security' para mais detalhes."
@@ -70,24 +70,33 @@ jobs:
 
       - name: Comment PR with results
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request' && steps.semgrep.outputs.findings != '0'
+        if: github.event_name == 'pull_request'
         with:
           script: |
-            const findings = '${{ steps.semgrep.outputs.findings }}';
-            const body = `## 🔍 Análise de Segurança (SAST) - Semgrep
-            **Vulnerabilidades encontradas:** ${findings}
-            📋 Verifique os detalhes na aba [Security](https://github.com/${{ github.repository }}/security/code-scanning) do repositório.
-            ### ⚠️ Ação Necessária
-            - Revise as vulnerabilidades identificadas
-            - Aplique as correções necessárias
-            - Confirme que os riscos foram mitigados
-            > **Trunk-based Development**: Correções de segurança devem ser aplicadas antes do merge para manter a qualidade da branch principal.`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            const fs = require('fs');
+            // Só comenta se houver resultados no relatório
+            if (fs.existsSync('semgrep.sarif')) {
+              const sarif = JSON.parse(fs.readFileSync('semgrep.sarif', 'utf8'));
+              const findings = sarif.runs.reduce((acc, run) => acc + run.results.length, 0);
+
+              if (findings > 0) {
+                const body = `## 🔍 Análise de Segurança (SAST) - Semgrep
+                **Vulnerabilidades encontradas:** ${findings}
+                📋 Verifique os detalhes na aba [Security](https://github.com/${{ github.repository }}/security/code-scanning) do repositório.
+                ### ⚠️ Ação Necessária
+                - Revise as vulnerabilidades identificadas
+                - Aplique as correções necessárias
+                - Confirme que os riscos foram mitigados
+                > **Trunk-based Development**: Correções de segurança devem ser aplicadas antes do merge para manter a qualidade da branch principal.`;
+                
+                github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+              }
+            }
 
   build-and-deploy:
     needs: semgrep
