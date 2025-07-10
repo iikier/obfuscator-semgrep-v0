@@ -40,7 +40,7 @@ jobs:
       
       - name: Comment PR with results on failure
         # Comenta apenas se o scan falhou e for um evento de PR.
-        if: steps.semgrep_scan.conclusion == 'failure' && github.event_name == 'pull_request'
+        if: steps.semgrep_scan.outcome == 'failure' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
@@ -64,7 +64,7 @@ jobs:
 
       - name: Security Gate Check
         # Este é o passo final que efetivamente falha o job se o scan encontrou problemas.
-        if: steps.semgrep_scan.conclusion == 'failure'
+        if: steps.semgrep_scan.outcome == 'failure'
         run: |
           echo "::error::O pipeline foi abortado! O scan de segurança encontrou vulnerabilidades críticas."
           exit 1
