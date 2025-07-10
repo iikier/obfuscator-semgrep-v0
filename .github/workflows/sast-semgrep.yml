@@ -25,10 +25,12 @@ jobs:
 
       - name: Run Semgrep Scan
         id: semgrep_scan
-        run: |
-          pip install semgrep
-          semgrep ci --config="p/security-audit" --config="p/owasp-top-ten" --config="p/cwe-top-25" --config="auto" --sarif --output="semgrep.sarif"
+        # Usa o comando Docker que configuramos, garantindo o uso do .semgrep.yml
+        # A flag continue-on-error é necessária para os passos seguintes (upload de SARIF, etc.)
         continue-on-error: true
+        run: |
+          docker run --rm -v "${PWD}:/src" -w /src returntocorp/semgrep \
+            semgrep scan --error --config "p/default" --config "p/trailofbits" --config .semgrep.yml --sarif -o semgrep.sarif /src
           
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v3
