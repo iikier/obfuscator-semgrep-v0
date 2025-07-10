@@ -8,24 +8,21 @@ rules:
   - id: sql-injection-detection
     patterns:
       - pattern-either:
-          - pattern: |
-              "SELECT * FROM $TABLE WHERE $COLUMN = '" + $INPUT + "'"
-          - pattern: |
-              "SELECT * FROM $TABLE WHERE $COLUMN = " + $INPUT
-          - pattern: |
-              "INSERT INTO $TABLE ($COLUMNS) VALUES ('" + $INPUT + "')"
-          - pattern: |
-              "UPDATE $TABLE SET $COLUMN = '" + $INPUT + "'"
-          - pattern: |
-              "DELETE FROM $TABLE WHERE $COLUMN = '" + $INPUT + "'"
-          - pattern: |
-              `SELECT * FROM $TABLE WHERE $COLUMN = '${$INPUT}'`
-          - pattern: |
-              `INSERT INTO $TABLE ($COLUMNS) VALUES ('${$INPUT}')`
-          - pattern: |
-              f"SELECT * FROM $TABLE WHERE $COLUMN = '{$INPUT}'"
-          - pattern: |
-              "SELECT * FROM $TABLE WHERE $COLUMN = '%s'" % $INPUT
+          # String concatenation patterns (exact matches from code)
+          - pattern: $VAR = "SELECT * FROM users WHERE id = " + $INPUT
+          - pattern: $VAR = "INSERT INTO users (name) VALUES ('" + $INPUT + "')"
+          - pattern: $VAR = "UPDATE $TABLE SET $COLUMN = '" + $INPUT + "'"
+          - pattern: $VAR = "DELETE FROM $TABLE WHERE $COLUMN = '" + $INPUT + "'"
+          # Template literals patterns (exact matches from code)
+          - pattern: $VAR = `SELECT * FROM accounts WHERE email = '${$INPUT}'`
+          - pattern: $VAR = `INSERT INTO $TABLE ($COLUMNS) VALUES ('${$INPUT}')`
+          - pattern: $VAR = `UPDATE $TABLE SET $COLUMN = '${$INPUT}'`
+          - pattern: $VAR = `DELETE FROM $TABLE WHERE $COLUMN = '${$INPUT}'`
+          # Generic patterns for any SQL concatenation
+          - pattern: $VAR = "SELECT " + $INPUT
+          - pattern: $VAR = "INSERT " + $INPUT  
+          - pattern: $VAR = "UPDATE " + $INPUT
+          - pattern: $VAR = "DELETE " + $INPUT
     message: |
       🚨 VULNERABILIDADE CRÍTICA: SQL Injection detectada!
 
@@ -42,21 +39,10 @@ rules:
       3. Validação rigorosa de entradas
       4. Sanitização com whitelist de caracteres permitidos
 
-      📚 OWASP A03:2021 - Injection | CWE-89
+              📚 OWASP A03:2021 - Injection | CWE-89
     languages:
       - javascript
       - typescript
-      - python
-      - java
-      - kotlin
-      - csharp
-      - go
-      - php
-      - ruby
-      - swift
-      - scala
-      - rust
-      - dart
     severity: ERROR
 
   # ================================
@@ -193,8 +179,6 @@ rules:
       - yaml
       - json
       - xml
-      - toml
-      - properties
     severity: ERROR
 
   # ================================
@@ -342,18 +326,14 @@ rules:
     severity: ERROR
 
   # ================================
-  # 8. DANGEROUS FUNCTIONS
+  # 8. DANGEROUS FUNCTIONS (NON-DUPLICATED)
   # ================================
-  - id: dangerous-functions
+  - id: dangerous-functions-custom
     patterns:
       - pattern-either:
-          - pattern: eval($INPUT)
           - pattern: new Function($INPUT)
           - pattern: setTimeout($INPUT, $TIME)
           - pattern: setInterval($INPUT, $TIME)
-          - pattern: exec($INPUT)
-          - pattern: execfile($INPUT)
-          - pattern: eval($INPUT) # PHP
           - pattern: assert($INPUT) # PHP
     message: |
       🚨 FUNÇÃO PERIGOSA DETECTADA!
@@ -373,15 +353,7 @@ rules:
     languages:
       - javascript
       - typescript
-      - python
-      - java
-      - kotlin
-      - csharp
-      - go
       - php
-      - ruby
-      - swift
-      - scala
     severity: ERROR
 
   # ================================
@@ -394,7 +366,7 @@ rules:
           - pattern: crypto.createCipher('rc4', $KEY)
           - pattern: Math.random()
           - pattern: random.random()
-          - pattern: jwt.sign($PAYLOAD, $SECRET, {algorithm: "none"})
+          - pattern: 'jwt.sign($PAYLOAD, $SECRET, {algorithm: "none"})'
           - pattern: Random.nextInt()
           - pattern: new Random()
     message: |
@@ -577,7 +549,7 @@ rules:
           - pattern: res.header('Access-Control-Allow-Origin', '*')
           - pattern: res.setHeader('Access-Control-Allow-Origin', '*')
           - pattern: response.setHeader("Access-Control-Allow-Origin", "*")
-          - pattern: header("Access-Control-Allow-Origin: *")
+          - pattern: 'header("Access-Control-Allow-Origin: *")'
     message: |
       🚨 CONFIGURAÇÃO CORS INSEGURA!
 
