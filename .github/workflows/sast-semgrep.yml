@@ -8,15 +8,15 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  scan:
+  # Job Único para Scan e Verificação de Segurança
+  security_scan:
     runs-on: ubuntu-latest
-    name: 1. Run Security Scan
-    outputs:
-      scan_conclusion: ${{ steps.semgrep_scan.conclusion }}
+    name: 1. Security Scan & Gate
     permissions:
       security-events: write
       contents: read
-      
+      pull-requests: write # Necessário para comentar no PR
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,41 +25,22 @@ jobs:
 
       - name: Run Semgrep Scan
         id: semgrep_scan
-        # Usa o comando Docker que configuramos, garantindo o uso do .semgrep.yml
-        # A flag continue-on-error é necessária para os passos seguintes (upload de SARIF, etc.)
+        # continue-on-error é crucial para que os passos seguintes (upload, comentário) sempre rodem.
         continue-on-error: true
         run: |
           docker run --rm -v "${PWD}:/src" -w /src returntocorp/semgrep \
             semgrep scan --error --config "p/default" --config "p/trailofbits" --config .semgrep.yml --sarif -o semgrep.sarif /src
-          
-      - name: Upload SARIF report
+
+      - name: Upload SARIF report to GitHub Security Tab
+        # Roda sempre para que os resultados estejam disponíveis na aba "Security".
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
-        if: always()
-
-  security_gate:
-    runs-on: ubuntu-latest
-    name: 2. Check Security Gate
-    needs: scan
-    permissions:
-      pull-requests: write # Apenas para o comentário
       
-    steps:
-      - name: Check for critical findings
-        if: needs.scan.outputs.scan_conclusion == 'failure'
-        run: |
-          echo "::error::O pipeline foi abortado! O scan de segurança encontrou vulnerabilidades críticas/altas."
-          echo "Verifique os resultados do job '1. Run Security Scan' e a aba 'Security' para mais detalhes."
-          exit 1
-      
-      - name: Approve security gate
-        if: needs.scan.outputs.scan_conclusion != 'failure'
-        run: echo "Nenhuma vulnerabilidade crítica encontrada. Análise de segurança aprovada."
-
-      - name: Comment PR with results
-        # Comenta apenas se o scan falhou e for um evento de PR
-        if: needs.scan.outputs.scan_conclusion == 'failure' && github.event_name == 'pull_request'
+      - name: Comment PR with results on failure
+        # Comenta apenas se o scan falhou e for um evento de PR.
+        if: steps.semgrep_scan.conclusion == 'failure' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
@@ -81,10 +62,19 @@ jobs:
               body: body
             });
 
+      - name: Security Gate Check
+        # Este é o passo final que efetivamente falha o job se o scan encontrou problemas.
+        if: steps.semgrep_scan.conclusion == 'failure'
+        run: |
+          echo "::error::O pipeline foi abortado! O scan de segurança encontrou vulnerabilidades críticas."
+          exit 1
+
+  # Job separado para Build e Deploy
   build-and-deploy:
     runs-on: ubuntu-latest
-    name: 3. Build and Deploy
-    needs: security_gate # Agora depende do portão de segurança
+    name: 2. Build and Deploy
+    # Agora depende diretamente do sucesso do job de segurança unificado.
+    needs: security_scan
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
